@@ -1,0 +1,1 @@
+"""VoiceForAll application package."""
