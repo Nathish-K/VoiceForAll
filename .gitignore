@@ -24,10 +24,6 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-<<<<<<< HEAD
-
-# Virtual environments
-=======
 MANIFEST
 
 # PyInstaller / Executables
@@ -49,12 +45,13 @@ nosetests.xml
 coverage.xml
 *.cover
 *.py,cover
+*.py.xml
 .hypothesis/
 .pytest_cache/
 pytestdebug.log
+.noserc
 
 # Virtual Environments
->>>>>>> 35394d6d364a2764650935409db0cb217a4245d0
 venv/
 .venv/
 env/
@@ -62,56 +59,24 @@ ENV/
 env.bak/
 venv.bak/
 
-<<<<<<< HEAD
-# Unit test / coverage reports
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-.noserc
-nosetests.xml
-coverage.xml
-*.cover
-*.py.xml
-
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints
-
 # Environment variables & secrets
 .env
 .env.local
 .env.*.local
 
-# IDEs and Editors
-=======
 # Whisper / PyTorch Model caches & weights
 .cache/
 models/
 *.pt
+*.bin
+*.onnx
 
-# IDEs & Editor configurations
->>>>>>> 35394d6d364a2764650935409db0cb217a4245d0
+# IDEs and Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-<<<<<<< HEAD
-
-# OS generated files
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Downloaded models & caches
-.cache/
-*.pt
-*.bin
-*.onnx
-
-# Generated logs & output files
-*.log
-=======
 .project
 .pydevproject
 .settings/
@@ -119,6 +84,7 @@ desktop.ini
 # Operating System files
 .DS_Store
 Thumbs.db
+desktop.ini
 Desktop.ini
 $RECYCLE.BIN/
 
@@ -126,4 +92,15 @@ $RECYCLE.BIN/
 scratch/
 scratch_*.py
 update_cleaned.py
->>>>>>> 35394d6d364a2764650935409db0cb217a4245d0
+
+# Generated Logs
+*.log
+
+# Audio Samples, Analysis Plots & Transcriptions
+audio_samples/raw/*.wav
+audio_samples/cleaned/*.wav
+audio_samples/analysis/
+transcriptions/*.txt
+*.wav
+*.png
+!.gitkeep

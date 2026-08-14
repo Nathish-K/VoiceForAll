@@ -79,6 +79,17 @@ def list_recordings(subdir: str = "raw") -> list[Path]:
     return sorted(list(target_dir.glob("*.wav")), key=lambda p: p.stat().st_mtime, reverse=True)
 
 
+def get_model_size_choice() -> str:
+    """Prompts user to select Whisper model tier."""
+    print("\nSelect Whisper Model Tier:")
+    print(" 1. ⚡ Tiny  (~39M params, fastest)")
+    print(" 2. 🎯 Base  (~74M params, recommended default)")
+    print(" 3. 🧠 Small (~244M params, higher accuracy)")
+    choice = input("Enter option (1-3) [default: 2]: ").strip()
+    models = {"1": "tiny", "2": "base", "3": "small"}
+    return models.get(choice, "base")
+
+
 def display_level4_report(
     raw_path: Path,
     clean_path: Path,
@@ -86,6 +97,7 @@ def display_level4_report(
     clean_text: str,
     raw_time: float,
     clean_time: float,
+    model_size: str = "base",
     reference_text: str | None = None,
 ) -> None:
     """Displays the comprehensive Level 4 speech recognition comparative report."""
@@ -94,7 +106,7 @@ def display_level4_report(
     print("=" * 72)
     print(f" • Raw Audio File       : {raw_path.name}")
     print(f" • Cleaned Audio File   : {clean_path.name}")
-    print(f" • Model Tier           : Whisper 'base' (CPU local inference)")
+    print(f" • Model Tier           : Whisper '{model_size}' (Local inference)")
     print("-" * 72)
     print(" 📝 TRANSCRIPTION RESULTS")
     print("-" * 72)
@@ -126,10 +138,11 @@ def main() -> None:
     """Main CLI execution flow."""
     print_banner()
 
+    model_size = get_model_size_choice()
     recorder = AudioRecorder(sample_rate=16000, channels=1, dtype="int16")
     analyzer = AudioAnalyzer()
-    reducer = NoiseReducer(prop_decrease=0.30, noise_profile_duration_sec=1.0)
-    transcriber = WhisperTranscriber(model_size="base")
+    reducer = NoiseReducer(prop_decrease=0.20, noise_profile_duration_sec=1.0)
+    transcriber = WhisperTranscriber(model_size=model_size)
 
     raw_files = list_recordings("raw")
     cleaned_files = list_recordings("cleaned")
@@ -144,7 +157,7 @@ def main() -> None:
 
     if choice == "2" and cleaned_files:
         target_file = cleaned_files[0]
-        print(f"\nTranscribing: {target_file.name} with Whisper 'base'...")
+        print(f"\nTranscribing: {target_file.name} with Whisper '{model_size}'...")
         res = transcriber.transcribe(target_file)
         print("\n" + "=" * 60)
         print(f"📁 File          : {target_file.name}")
@@ -155,7 +168,6 @@ def main() -> None:
 
     if choice == "3" and raw_files:
         raw_target = raw_files[0]
-        # Look for matching cleaned file
         cleaned_target = PROJECT_ROOT / "audio_samples" / "cleaned" / f"{raw_target.stem}_cleaned.wav"
         if not cleaned_target.exists():
             print(f"Generating cleaned version for {raw_target.name}...")
@@ -166,9 +178,9 @@ def main() -> None:
         ref_input = input("\nEnter expected reference text (leave blank to skip WER): ").strip()
         ref_text = ref_input if ref_input else None
 
-        print("\nTranscribing raw audio...")
+        print(f"\nTranscribing raw audio with Whisper '{model_size}'...")
         raw_res = transcriber.transcribe(raw_target)
-        print("Transcribing cleaned audio...")
+        print(f"Transcribing cleaned audio with Whisper '{model_size}'...")
         clean_res = transcriber.transcribe(cleaned_target)
 
         display_level4_report(
@@ -178,7 +190,8 @@ def main() -> None:
             clean_res.text,
             raw_res.inference_time_sec,
             clean_res.inference_time_sec,
-            ref_text,
+            model_size=model_size,
+            reference_text=ref_text,
         )
         return
 
@@ -192,24 +205,23 @@ def main() -> None:
 
     noise_tag = get_noise_tag()
     duration = get_user_duration()
-    ref_input = input("\nEnter expected phrase (for WER tracking, e.g. 'Turn on the flashlight') [optional]: ").strip()
+    ref_input = input("\nEnter expected phrase (for WER tracking after transcription) [optional]: ").strip()
     reference_text = ref_input if ref_input else None
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     raw_path = PROJECT_ROOT / "audio_samples" / "raw" / f"{noise_tag}_{timestamp}.wav"
     clean_path = PROJECT_ROOT / "audio_samples" / "cleaned" / f"{noise_tag}_{timestamp}_cleaned.wav"
 
-    print("\n💡 TIP: Stay silent for first 1.0s so noise profile is captured, then speak clearly!")
     for i in range(3, 0, -1):
         print(f"Starting in {i}...", end="\r", flush=True)
         time.sleep(1)
-    print(f"🔴 RECORDING NOW for {duration} seconds... Speak your command!")
+    print(f"🔴 RECORDING NOW for {duration} seconds... Speak clearly into your microphone!")
 
     try:
-        # 1. Record
-        audio_data = recorder.record(duration=duration)
+        # 1. Record with peak auto-normalization
+        audio_data = recorder.record(duration=duration, auto_normalize=True)
         saved_raw = recorder.save_wav(file_path=raw_path, audio_data=audio_data)
-        print(f"💾 Saved raw audio to: {saved_raw.name}")
+        print(f"💾 Saved normalized raw audio to: {saved_raw.name}")
 
         # 2. Clean
         print("🔇 Applying Spectral Gating Noise Reduction...")
@@ -219,10 +231,10 @@ def main() -> None:
             print(f"⚠️  {reduction_report.speech_attenuation_warning}")
 
         # 3. Transcribe Raw & Cleaned with Whisper
-        print("🗣️ Transcribing Raw Audio with Whisper...")
+        print(f"🗣️ Transcribing Raw Audio with Whisper '{model_size}'...")
         raw_res = transcriber.transcribe(saved_raw)
 
-        print("🗣️ Transcribing Cleaned Audio with Whisper...")
+        print(f"🗣️ Transcribing Cleaned Audio with Whisper '{model_size}'...")
         clean_res = transcriber.transcribe(clean_path)
 
         # 4. Generate comparison plots
@@ -240,7 +252,8 @@ def main() -> None:
             clean_res.text,
             raw_res.inference_time_sec,
             clean_res.inference_time_sec,
-            reference_text,
+            model_size=model_size,
+            reference_text=reference_text,
         )
 
     except KeyboardInterrupt:
@@ -253,3 +266,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

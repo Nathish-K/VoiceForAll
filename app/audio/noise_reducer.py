@@ -50,7 +50,7 @@ class NoiseReducer:
 
     def __init__(
         self,
-        prop_decrease: float = 0.30,
+        prop_decrease: float = 0.20,
         stationary: bool = True,
         n_fft: int = 1024,
         win_length: int = 512,
@@ -90,7 +90,6 @@ class NoiseReducer:
         if len(samples) < 100 or np.all(samples == 0):
             return 0.0
 
-        # Frame-by-frame energy (frame size: ~20ms = 320 samples at 16kHz)
         frame_size = 320
         num_frames = len(samples) // frame_size
         if num_frames == 0:
@@ -99,11 +98,9 @@ class NoiseReducer:
         frames = samples[: num_frames * frame_size].reshape(num_frames, frame_size)
         frame_powers = np.mean(np.square(frames), axis=1)
 
-        # Estimate signal power (upper percentile) and noise power (lower percentile)
         signal_power = np.percentile(frame_powers, top_percentile)
         noise_power = np.percentile(frame_powers, bottom_percentile)
 
-        # Floor noise power to avoid division by zero or log(0)
         noise_power = max(noise_power, 1e-10)
         signal_power = max(signal_power, 1e-10)
 
@@ -137,11 +134,12 @@ class NoiseReducer:
             norm_audio = audio_data.astype(np.float32)
             norm_noise = noise_clip.astype(np.float32) if noise_clip is not None else None
 
-        # Guard against degenerate noise clips (e.g. digital zeroes or silent padding)
+        # Guard against speech contamination or degenerate noise clips
         if norm_noise is not None:
             noise_rms = float(np.sqrt(np.mean(np.square(norm_noise))))
-            # If the provided noise clip has near-zero energy (< -70 dB), fallback to auto estimation
-            if noise_rms < 1e-4:
+            total_rms = float(np.sqrt(np.mean(np.square(norm_audio))))
+            # If the provided noise clip has near-zero energy (< -70 dB) or high energy (speech present), fallback to auto estimation
+            if noise_rms < 1e-4 or (total_rms > 0 and noise_rms > 0.6 * total_rms and noise_rms > 0.03):
                 norm_noise = None
 
         # Apply noisereduce spectral gating
