@@ -133,6 +133,15 @@ class WhisperTranscriber:
             except ImportError:
                 self.device = "cpu"
 
+    def set_model_size(self, model_size: str) -> None:
+        """Dynamically switches Whisper model tier ('tiny', 'base', 'small', 'medium')."""
+        valid_tiers = ("tiny", "base", "small", "medium")
+        if model_size not in valid_tiers:
+            raise ValueError(f"Invalid model size '{model_size}'. Choose from {valid_tiers}")
+        if model_size != self.model_size:
+            self.model_size = model_size
+            self._model = None
+
     def _ensure_model_loaded(self) -> None:
         """Loads the Whisper model into memory on first call (lazy-loading)."""
         if self._model is None:
@@ -166,7 +175,6 @@ class WhisperTranscriber:
             if not file_path_obj.is_file():
                 raise FileNotFoundError(f"Audio file not found: {file_path_obj}")
 
-            # Load audio using scipy to avoid external ffmpeg system dependency on Windows
             sr, raw_data = wavfile.read(str(file_path_obj))
             flat_audio = raw_data.flatten()
             if flat_audio.dtype == np.int16:
@@ -174,32 +182,33 @@ class WhisperTranscriber:
             else:
                 float_audio = flat_audio.astype(np.float32)
 
-            # Resample if not 16 kHz
             if sr != 16000:
                 from scipy import signal
                 num_target_samples = int(len(float_audio) * 16000 / sr)
                 float_audio = signal.resample(float_audio, num_target_samples)
 
-            result = self._model.transcribe(
-                float_audio,
-                language=self.language,
-                fp16=(self.device == "cuda"),
-            )
         elif isinstance(audio_input, np.ndarray):
-            # Normalize int16 or float32 to float32 between [-1.0, 1.0]
             flat_audio = audio_input.flatten()
             if flat_audio.dtype == np.int16:
                 float_audio = flat_audio.astype(np.float32) / 32768.0
             else:
                 float_audio = flat_audio.astype(np.float32)
-
-            result = self._model.transcribe(
-                float_audio,
-                language=self.language,
-                fp16=(self.device == "cuda"),
-            )
         else:
             raise TypeError(f"Unsupported audio input type: {type(audio_input)}")
+
+        # Audio peak normalization prior to Whisper inference
+        peak = np.max(np.abs(float_audio))
+        if peak > 1e-4 and peak < 0.8:
+            float_audio = float_audio / peak * 0.95
+
+        # Execute local Whisper inference
+        # condition_on_previous_text=False prevents hallucination loops on short voice clips
+        result = self._model.transcribe(
+            float_audio,
+            language=self.language,
+            condition_on_previous_text=False,
+            fp16=(self.device == "cuda"),
+        )
 
         inference_time = round(time.time() - start_time, 2)
         recognized_text = result.get("text", "").strip()

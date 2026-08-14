@@ -45,9 +45,11 @@ nosetests.xml
 coverage.xml
 *.cover
 *.py,cover
+*.py.xml
 .hypothesis/
 .pytest_cache/
 pytestdebug.log
+.noserc
 
 # Virtual Environments
 venv/
@@ -57,12 +59,19 @@ ENV/
 env.bak/
 venv.bak/
 
+# Environment variables & secrets
+.env
+.env.local
+.env.*.local
+
 # Whisper / PyTorch Model caches & weights
 .cache/
 models/
 *.pt
+*.bin
+*.onnx
 
-# IDEs & Editor configurations
+# IDEs and Editors
 .vscode/
 .idea/
 *.swp
@@ -75,6 +84,7 @@ models/
 # Operating System files
 .DS_Store
 Thumbs.db
+desktop.ini
 Desktop.ini
 $RECYCLE.BIN/
 
@@ -82,24 +92,3 @@ $RECYCLE.BIN/
 scratch/
 scratch_*.py
 update_cleaned.py
-
-# Audio recordings & generated outputs
-audio_samples/raw/*
-audio_samples/cleaned/*
-audio_samples/analysis/*
-audio_samples/analysis/comparison/*
-transcriptions/*
-
-# General audio & image file extensions
-*.wav
-*.mp3
-*.flac
-*.ogg
-*.png
-*.jpg
-*.jpeg
-
-# Preserve folder structure in git
-!.gitkeep
-!audio_samples/**/.gitkeep
-!transcriptions/.gitkeep
