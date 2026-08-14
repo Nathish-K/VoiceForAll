@@ -272,9 +272,10 @@ class NoiseReducer:
 def reduce_noise_file(
     input_file: Union[str, Path],
     output_file: Optional[Union[str, Path]] = None,
-    prop_decrease: float = 0.30,
+    prop_decrease: float = 0.20,
     noise_profile_duration_sec: float = 1.0,
 ) -> NoiseReductionReport:
     """Convenience helper to reduce noise from an audio file."""
     reducer = NoiseReducer(prop_decrease=prop_decrease, noise_profile_duration_sec=noise_profile_duration_sec)
     return reducer.clean_audio_file(input_file, output_file)
+
