@@ -158,13 +158,17 @@ class AudioRecorder:
             elif hw_channels == 1 and self.channels == 2:
                 float_buf = np.tile(float_buf, (1, 2))
 
-            # 2. Resample to target sample_rate if hardware rate differs
+            # 2. DC offset removal to eliminate hardware DC bias
+            float_buf = float_buf - np.mean(float_buf, axis=0, keepdims=True)
+
+            # 3. High-quality polyphase FIR anti-aliasing resampling
             if hw_sr != self.sample_rate:
-                target_num_samples = int(round(duration * self.sample_rate))
-                # Use scipy.signal.resample_poly or resample
+                g = math.gcd(int(self.sample_rate), int(hw_sr))
+                up = int(self.sample_rate // g)
+                down = int(hw_sr // g)
                 resampled_channels = []
                 for ch in range(float_buf.shape[1]):
-                    ch_resampled = signal.resample(float_buf[:, ch], target_num_samples)
+                    ch_resampled = signal.resample_poly(float_buf[:, ch], up, down)
                     resampled_channels.append(ch_resampled)
                 float_buf = np.column_stack(resampled_channels)
 
@@ -175,7 +179,7 @@ class AudioRecorder:
             else:
                 audio_data = float_buf.astype(np.float32)
 
-            # 3. Peak gain normalization
+            # 4. Peak gain normalization
             if auto_normalize:
                 audio_data = self.normalize_audio(audio_data, target_peak_ratio=0.90)
 

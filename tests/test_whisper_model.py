@@ -41,7 +41,38 @@ def test_wer_calculation_errors():
 
 def test_whisper_transcriber_initialization():
     """Verify transcriber initial state without loading weights."""
-    transcriber = WhisperTranscriber(model_size="base", language="en")
-    assert transcriber.model_size == "base"
+    transcriber = WhisperTranscriber(model_size="base.en", language="en")
+    assert transcriber.model_size == "base.en"
     assert transcriber.language == "en"
     assert transcriber._model is None
+
+
+def test_model_size_switching():
+    """Verify switching between valid Whisper tiers."""
+    transcriber = WhisperTranscriber(model_size="base")
+    transcriber.set_model_size("base.en")
+    assert transcriber.model_size == "base.en"
+    transcriber.set_model_size("tiny.en")
+    assert transcriber.model_size == "tiny.en"
+
+    with pytest.raises(ValueError):
+        transcriber.set_model_size("invalid_tier")
+
+
+def test_trim_silence_vad():
+    """Verify VAD trims leading/trailing dead silence while preserving speech segment."""
+    import numpy as np
+    from app.speech.whisper_model import trim_silence_vad
+
+    sample_rate = 16000
+    # 1 second of silence, 1 second of active sine wave, 1 second of silence
+    t_silence = np.zeros(sample_rate, dtype=np.float32)
+    t_active = np.sin(2 * np.pi * 440 * np.linspace(0, 1, sample_rate)).astype(np.float32) * 0.8
+    full_audio = np.concatenate([t_silence, t_active, t_silence])
+
+    trimmed = trim_silence_vad(full_audio, sample_rate=sample_rate)
+    # Trimmed length should be significantly shorter than the original 3 seconds (48000 samples)
+    assert len(trimmed) < len(full_audio)
+    # But should still contain the active speech
+    assert np.max(np.abs(trimmed)) > 0.5
+

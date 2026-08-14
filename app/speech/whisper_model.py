@@ -103,12 +103,67 @@ def calculate_wer(reference: str, hypothesis: str) -> float:
         return float(d[len(ref_words), len(hyp_words)] / len(ref_words))
 
 
+def trim_silence_vad(
+    audio_float: np.ndarray,
+    sample_rate: int = 16000,
+    frame_duration_ms: float = 30.0,
+    energy_threshold_ratio: float = 0.03,
+    padding_ms: float = 200.0,
+) -> np.ndarray:
+    """
+    Trims leading and trailing silence from speech audio using RMS energy thresholding,
+    with a padding margin to protect onset plosives and offset consonants.
+
+    Args:
+        audio_float (np.ndarray): 1D float32 audio array.
+        sample_rate (int): Sampling rate in Hz.
+        frame_duration_ms (float): Frame duration in ms (default: 30ms).
+        energy_threshold_ratio (float): Fraction of peak energy considered active speech.
+        padding_ms (float): Padding in ms around active speech boundaries.
+
+    Returns:
+        np.ndarray: Trimmed float32 audio array.
+    """
+    if len(audio_float) < sample_rate * 0.4:
+        return audio_float
+
+    frame_size = int((frame_duration_ms / 1000.0) * sample_rate)
+    if frame_size <= 0:
+        return audio_float
+
+    num_frames = len(audio_float) // frame_size
+    if num_frames < 2:
+        return audio_float
+
+    frames = audio_float[: num_frames * frame_size].reshape(num_frames, frame_size)
+    frame_rms = np.sqrt(np.mean(np.square(frames), axis=1))
+
+    peak_rms = np.max(frame_rms)
+    if peak_rms < 1e-4:
+        return audio_float  # Entirely silent
+
+    threshold = max(0.003, peak_rms * energy_threshold_ratio)
+    active_indices = np.where(frame_rms >= threshold)[0]
+
+    if len(active_indices) == 0:
+        return audio_float
+
+    start_frame = active_indices[0]
+    end_frame = active_indices[-1]
+
+    padding_frames = int((padding_ms / 1000.0) * (sample_rate / frame_size))
+    start_sample = max(0, (start_frame - padding_frames) * frame_size)
+    end_sample = min(len(audio_float), (end_frame + 1 + padding_frames) * frame_size)
+
+    return audio_float[start_sample:end_sample]
+
+
 class WhisperTranscriber:
     """
     Whisper ASR Transcriber.
 
     Attributes:
-        model_size (str): Whisper model tier ('tiny', 'base', 'small', 'medium').
+        model_size (str): Whisper model tier ('tiny', 'tiny.en', 'base', 'base.en', 'small', 'small.en', 'medium').
             Default is 'base' (~74M parameters, fast CPU inference).
         device (str): Inference device ('cpu' or 'cuda').
         language (str): Target spoken language code (e.g. 'en' for English).
@@ -134,8 +189,8 @@ class WhisperTranscriber:
                 self.device = "cpu"
 
     def set_model_size(self, model_size: str) -> None:
-        """Dynamically switches Whisper model tier ('tiny', 'base', 'small', 'medium')."""
-        valid_tiers = ("tiny", "base", "small", "medium")
+        """Dynamically switches Whisper model tier ('tiny', 'tiny.en', 'base', 'base.en', 'small', 'small.en', 'medium')."""
+        valid_tiers = ("tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en")
         if model_size not in valid_tiers:
             raise ValueError(f"Invalid model size '{model_size}'. Choose from {valid_tiers}")
         if model_size != self.model_size:
@@ -152,13 +207,15 @@ class WhisperTranscriber:
         self,
         audio_input: Union[str, Path, np.ndarray],
         save_txt: bool = True,
+        vad_trim: bool = True,
     ) -> TranscriptionResult:
         """
-        Transcribes a WAV file or NumPy audio array into text.
+        Transcribes a WAV file or NumPy audio array into text with high accuracy.
 
         Args:
             audio_input (str | Path | np.ndarray): File path or 16 kHz float32/int16 array.
             save_txt (bool): If True and audio_input is a file, saves text to transcriptions/<name>.txt.
+            vad_trim (bool): If True, applies Voice Activity Detection trimming to silence margins.
 
         Returns:
             TranscriptionResult: Recognized text and metadata.
@@ -183,9 +240,12 @@ class WhisperTranscriber:
                 float_audio = flat_audio.astype(np.float32)
 
             if sr != 16000:
+                import math
                 from scipy import signal
-                num_target_samples = int(len(float_audio) * 16000 / sr)
-                float_audio = signal.resample(float_audio, num_target_samples)
+                g = math.gcd(int(16000), int(sr))
+                up = int(16000 // g)
+                down = int(sr // g)
+                float_audio = signal.resample_poly(float_audio, up, down)
 
         elif isinstance(audio_input, np.ndarray):
             flat_audio = audio_input.flatten()
@@ -198,16 +258,32 @@ class WhisperTranscriber:
 
         # Audio peak normalization prior to Whisper inference
         peak = np.max(np.abs(float_audio))
-        if peak > 1e-4 and peak < 0.8:
-            float_audio = float_audio / peak * 0.95
+        if peak > 1e-4 and peak < 0.90:
+            float_audio = (float_audio / peak) * 0.95
+
+        # Voice Activity Detection (VAD) silence trimming
+        if vad_trim:
+            float_audio = trim_silence_vad(float_audio, sample_rate=16000)
+
+        # Transcribe parameters optimized for maximum accuracy
+        transcribe_kwargs = {
+            "temperature": 0.0,
+            "beam_size": 5,
+            "best_of": 5,
+            "condition_on_previous_text": False,
+            "no_speech_threshold": 0.6,
+            "compression_ratio_threshold": 2.4,
+            "fp16": (self.device == "cuda"),
+        }
+
+        # For multilingual models, pass language specification
+        if not self.model_size.endswith(".en") and self.language:
+            transcribe_kwargs["language"] = self.language
 
         # Execute local Whisper inference
-        # condition_on_previous_text=False prevents hallucination loops on short voice clips
         result = self._model.transcribe(
             float_audio,
-            language=self.language,
-            condition_on_previous_text=False,
-            fp16=(self.device == "cuda"),
+            **transcribe_kwargs,
         )
 
         inference_time = round(time.time() - start_time, 2)

@@ -13,6 +13,11 @@ from pathlib import Path
 import sys
 import time
 
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -82,12 +87,20 @@ def list_recordings(subdir: str = "raw") -> list[Path]:
 def get_model_size_choice() -> str:
     """Prompts user to select Whisper model tier."""
     print("\nSelect Whisper Model Tier:")
-    print(" 1. ⚡ Tiny  (~39M params, fastest)")
-    print(" 2. 🎯 Base  (~74M params, recommended default)")
-    print(" 3. 🧠 Small (~244M params, higher accuracy)")
-    choice = input("Enter option (1-3) [default: 2]: ").strip()
-    models = {"1": "tiny", "2": "base", "3": "small"}
-    return models.get(choice, "base")
+    print(" 1. 🎯 Base English (base.en, ~74M params, recommended default)")
+    print(" 2. ⚡ Tiny English (tiny.en, ~39M params, fastest)")
+    print(" 3. 🧠 Small English (small.en, ~244M params, highest English accuracy)")
+    print(" 4. 🌐 Multilingual Base (base, ~74M params)")
+    print(" 5. 🌐 Multilingual Small (small, ~244M params)")
+    choice = input("Enter option (1-5) [default: 1]: ").strip()
+    models = {
+        "1": "base.en",
+        "2": "tiny.en",
+        "3": "small.en",
+        "4": "base",
+        "5": "small",
+    }
+    return models.get(choice, "base.en")
 
 
 def display_level4_report(

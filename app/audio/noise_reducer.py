@@ -167,6 +167,58 @@ class NoiseReducer:
         else:
             return cleaned_float.astype(original_dtype)
 
+    @staticmethod
+    def extract_adaptive_noise_clip(
+        audio_data: np.ndarray,
+        sample_rate: int = 16000,
+        frame_duration_ms: float = 50.0,
+        percentile_threshold: float = 25.0,
+        max_noise_duration_sec: float = 1.0,
+    ) -> Optional[np.ndarray]:
+        """
+        Extracts representative background ambient noise frames by identifying
+        the lowest energy frames across the recording (avoiding speech contamination).
+
+        Args:
+            audio_data (np.ndarray): Audio waveform samples.
+            sample_rate (int): Sampling rate in Hz.
+            frame_duration_ms (float): Frame window size in milliseconds.
+            percentile_threshold (float): Energy percentile threshold for noise floor.
+            max_noise_duration_sec (float): Max total noise reference length to collect.
+
+        Returns:
+            Optional[np.ndarray]: Concatenated silence/noise frames or None if no silence contrast.
+        """
+        flat = audio_data.flatten().astype(np.float64)
+        if len(flat) < sample_rate * 0.3:
+            return None
+
+        frame_size = int((frame_duration_ms / 1000.0) * sample_rate)
+        if frame_size <= 0:
+            return None
+
+        num_frames = len(flat) // frame_size
+        if num_frames < 4:
+            return None
+
+        frames = flat[: num_frames * frame_size].reshape(num_frames, frame_size)
+        frame_energies = np.sqrt(np.mean(np.square(frames), axis=1))
+
+        p_cutoff = np.percentile(frame_energies, percentile_threshold)
+        max_energy = np.max(frame_energies)
+
+        # Ensure genuine contrast between speech and noise floor exists (speech peak > 2x noise cutoff)
+        if max_energy > 0 and (p_cutoff / max_energy) < 0.5:
+            quiet_indices = np.where(frame_energies <= p_cutoff)[0]
+            if len(quiet_indices) > 0:
+                max_frames = max(1, int((max_noise_duration_sec * 1000.0) / frame_duration_ms))
+                selected_indices = quiet_indices[:max_frames]
+                selected_frames = frames[selected_indices]
+                noise_clip = selected_frames.flatten()
+                return noise_clip.astype(audio_data.dtype)
+
+        return None
+
     def clean_audio_file(
         self,
         raw_file_path: Union[str, Path],
@@ -180,7 +232,7 @@ class NoiseReducer:
         Args:
             raw_file_path (str | Path): Source noisy WAV file.
             output_file_path (str | Path, optional): Output path. Defaults to audio_samples/cleaned/<name>_cleaned.wav.
-            noise_profile_duration_sec (float, optional): Duration of initial silence to use as noise profile.
+            noise_profile_duration_sec (float, optional): Duration of silence to use as noise profile.
                 Defaults to instance `self.noise_profile_duration_sec` (typically 1.0s).
 
         Returns:
@@ -207,10 +259,13 @@ class NoiseReducer:
         # Use explicitly provided duration or fallback to instance setting
         dur_sec = noise_profile_duration_sec if noise_profile_duration_sec is not None else self.noise_profile_duration_sec
 
-        # Extract first N seconds as explicit noise clip if available
-        noise_samples_count = int(dur_sec * sample_rate)
-        if dur_sec > 0 and len(raw_data) > noise_samples_count:
-            noise_clip = raw_data[:noise_samples_count]
+        # Extract intelligent adaptive noise profile
+        if dur_sec > 0:
+            noise_clip = self.extract_adaptive_noise_clip(
+                raw_data,
+                sample_rate=sample_rate,
+                max_noise_duration_sec=dur_sec,
+            )
         else:
             noise_clip = None
 
