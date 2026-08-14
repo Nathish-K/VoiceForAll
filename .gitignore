@@ -82,3 +82,24 @@ $RECYCLE.BIN/
 scratch/
 scratch_*.py
 update_cleaned.py
+
+# Audio recordings & generated outputs
+audio_samples/raw/*
+audio_samples/cleaned/*
+audio_samples/analysis/*
+audio_samples/analysis/comparison/*
+transcriptions/*
+
+# General audio & image file extensions
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.png
+*.jpg
+*.jpeg
+
+# Preserve folder structure in git
+!.gitkeep
+!audio_samples/**/.gitkeep
+!transcriptions/.gitkeep
