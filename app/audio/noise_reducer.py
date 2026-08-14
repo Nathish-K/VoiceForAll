@@ -29,6 +29,7 @@ class NoiseReductionReport:
     raw_snr_db: float
     cleaned_snr_db: float
     snr_improvement_db: float
+    speech_attenuation_warning: Optional[str] = None
 
 
 class NoiseReducer:
@@ -37,30 +38,36 @@ class NoiseReducer:
 
     Attributes:
         prop_decrease (float): Proportion of estimated noise to reduce (0.0 to 1.0).
-            Default is 0.80 (80%). Choosing 80-85% prevents robotic phase artifacts.
+            Default is 0.30 (30%). Lower values (0.20-0.40) preserve speech formant transitions
+            and acoustic integrity for ASR models like Whisper, avoiding robotic distortion.
         stationary (bool): True for steady stationary noise (fans, AC),
             False for dynamic non-stationary background noise.
         n_fft (int): Number of FFT points for frequency decomposition (default: 1024).
         win_length (int): Length of each analysis window (default: 512).
         hop_length (int): Step size between successive windows (default: 128).
+        noise_profile_duration_sec (float): Duration of initial noise-only window (default: 1.0s).
     """
 
     def __init__(
         self,
-        prop_decrease: float = 0.80,
+        prop_decrease: float = 0.30,
         stationary: bool = True,
         n_fft: int = 1024,
         win_length: int = 512,
         hop_length: int = 128,
+        noise_profile_duration_sec: float = 1.0,
     ) -> None:
         if not (0.0 <= prop_decrease <= 1.0):
             raise ValueError(f"prop_decrease must be between 0.0 and 1.0, got {prop_decrease}")
+        if noise_profile_duration_sec < 0.0:
+            raise ValueError(f"noise_profile_duration_sec must be non-negative, got {noise_profile_duration_sec}")
 
         self.prop_decrease = prop_decrease
         self.stationary = stationary
         self.n_fft = n_fft
         self.win_length = win_length
         self.hop_length = hop_length
+        self.noise_profile_duration_sec = noise_profile_duration_sec
 
     @staticmethod
     def estimate_snr(audio_data: np.ndarray, top_percentile: float = 90, bottom_percentile: float = 15) -> float:
@@ -130,6 +137,13 @@ class NoiseReducer:
             norm_audio = audio_data.astype(np.float32)
             norm_noise = noise_clip.astype(np.float32) if noise_clip is not None else None
 
+        # Guard against degenerate noise clips (e.g. digital zeroes or silent padding)
+        if norm_noise is not None:
+            noise_rms = float(np.sqrt(np.mean(np.square(norm_noise))))
+            # If the provided noise clip has near-zero energy (< -70 dB), fallback to auto estimation
+            if noise_rms < 1e-4:
+                norm_noise = None
+
         # Apply noisereduce spectral gating
         cleaned_float = nr.reduce_noise(
             y=norm_audio.flatten(),
@@ -159,7 +173,7 @@ class NoiseReducer:
         self,
         raw_file_path: Union[str, Path],
         output_file_path: Optional[Union[str, Path]] = None,
-        noise_profile_duration_sec: float = 0.5,
+        noise_profile_duration_sec: Optional[float] = None,
     ) -> NoiseReductionReport:
         """
         Reads a raw WAV file, applies spectral gating noise reduction, saves the cleaned
@@ -168,7 +182,8 @@ class NoiseReducer:
         Args:
             raw_file_path (str | Path): Source noisy WAV file.
             output_file_path (str | Path, optional): Output path. Defaults to audio_samples/cleaned/<name>_cleaned.wav.
-            noise_profile_duration_sec (float): Duration of initial silence to use as noise profile.
+            noise_profile_duration_sec (float, optional): Duration of initial silence to use as noise profile.
+                Defaults to instance `self.noise_profile_duration_sec` (typically 1.0s).
 
         Returns:
             NoiseReductionReport: Comprehensive before/after report.
@@ -191,9 +206,15 @@ class NoiseReducer:
         # 1. Load raw audio
         sample_rate, raw_data = wavfile.read(str(raw_path))
 
+        # Use explicitly provided duration or fallback to instance setting
+        dur_sec = noise_profile_duration_sec if noise_profile_duration_sec is not None else self.noise_profile_duration_sec
+
         # Extract first N seconds as explicit noise clip if available
-        noise_samples_count = int(noise_profile_duration_sec * sample_rate)
-        noise_clip = raw_data[:noise_samples_count] if len(raw_data) > noise_samples_count else None
+        noise_samples_count = int(dur_sec * sample_rate)
+        if dur_sec > 0 and len(raw_data) > noise_samples_count:
+            noise_clip = raw_data[:noise_samples_count]
+        else:
+            noise_clip = None
 
         # 2. Perform noise reduction
         cleaned_data = self.clean_audio_array(
@@ -221,6 +242,17 @@ class NoiseReducer:
         clean_snr = self.estimate_snr(cleaned_data)
         snr_diff = round(clean_snr - raw_snr, 2)
 
+        # Speech-preservation check
+        warning_msg: Optional[str] = None
+        if raw_rms > 50.0:  # Only evaluate speech signals with perceptible volume
+            rms_ratio = clean_rms / max(raw_rms, 1e-5)
+            peak_ratio = clean_peak / max(raw_peak, 1)
+            if rms_ratio < 0.40 or peak_ratio < 0.40:
+                warning_msg = (
+                    f"Excessive attenuation detected: Cleaned RMS is {rms_ratio*100:.1f}% of raw "
+                    f"and Peak is {peak_ratio*100:.1f}% of raw. Speech formants may be degraded."
+                )
+
         return NoiseReductionReport(
             raw_file_path=raw_path,
             cleaned_file_path=clean_path,
@@ -234,6 +266,7 @@ class NoiseReducer:
             raw_snr_db=raw_snr,
             cleaned_snr_db=clean_snr,
             snr_improvement_db=snr_diff,
+            speech_attenuation_warning=warning_msg,
         )
 
 
@@ -241,8 +274,9 @@ class NoiseReducer:
 def reduce_noise_file(
     input_file: Union[str, Path],
     output_file: Optional[Union[str, Path]] = None,
-    prop_decrease: float = 0.80,
+    prop_decrease: float = 0.30,
+    noise_profile_duration_sec: float = 1.0,
 ) -> NoiseReductionReport:
     """Convenience helper to reduce noise from an audio file."""
-    reducer = NoiseReducer(prop_decrease=prop_decrease)
+    reducer = NoiseReducer(prop_decrease=prop_decrease, noise_profile_duration_sec=noise_profile_duration_sec)
     return reducer.clean_audio_file(input_file, output_file)

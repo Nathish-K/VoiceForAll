@@ -24,8 +24,37 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+<<<<<<< HEAD
 
 # Virtual environments
+=======
+MANIFEST
+
+# PyInstaller / Executables
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytestdebug.log
+
+# Virtual Environments
+>>>>>>> 35394d6d364a2764650935409db0cb217a4245d0
 venv/
 .venv/
 env/
@@ -33,6 +62,7 @@ ENV/
 env.bak/
 venv.bak/
 
+<<<<<<< HEAD
 # Unit test / coverage reports
 .pytest_cache/
 .coverage
@@ -53,11 +83,20 @@ coverage.xml
 .env.*.local
 
 # IDEs and Editors
+=======
+# Whisper / PyTorch Model caches & weights
+.cache/
+models/
+*.pt
+
+# IDEs & Editor configurations
+>>>>>>> 35394d6d364a2764650935409db0cb217a4245d0
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+<<<<<<< HEAD
 
 # OS generated files
 .DS_Store
@@ -72,3 +111,19 @@ desktop.ini
 
 # Generated logs & output files
 *.log
+=======
+.project
+.pydevproject
+.settings/
+
+# Operating System files
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Temporary / Scratch test scripts
+scratch/
+scratch_*.py
+update_cleaned.py
+>>>>>>> 35394d6d364a2764650935409db0cb217a4245d0
