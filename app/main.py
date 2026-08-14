@@ -128,7 +128,7 @@ def main() -> None:
 
     recorder = AudioRecorder(sample_rate=16000, channels=1, dtype="int16")
     analyzer = AudioAnalyzer()
-    reducer = NoiseReducer(prop_decrease=0.80)
+    reducer = NoiseReducer(prop_decrease=0.30, noise_profile_duration_sec=1.0)
     transcriber = WhisperTranscriber(model_size="base")
 
     raw_files = list_recordings("raw")
@@ -159,7 +159,9 @@ def main() -> None:
         cleaned_target = PROJECT_ROOT / "audio_samples" / "cleaned" / f"{raw_target.stem}_cleaned.wav"
         if not cleaned_target.exists():
             print(f"Generating cleaned version for {raw_target.name}...")
-            reducer.clean_audio_file(raw_target, cleaned_target)
+            report = reducer.clean_audio_file(raw_target, cleaned_target)
+            if report.speech_attenuation_warning:
+                print(f"⚠️  {report.speech_attenuation_warning}")
 
         ref_input = input("\nEnter expected reference text (leave blank to skip WER): ").strip()
         ref_text = ref_input if ref_input else None
@@ -197,7 +199,7 @@ def main() -> None:
     raw_path = PROJECT_ROOT / "audio_samples" / "raw" / f"{noise_tag}_{timestamp}.wav"
     clean_path = PROJECT_ROOT / "audio_samples" / "cleaned" / f"{noise_tag}_{timestamp}_cleaned.wav"
 
-    print("\n💡 TIP: Stay silent for first 0.5s so noise profile is captured, then speak clearly!")
+    print("\n💡 TIP: Stay silent for first 1.0s so noise profile is captured, then speak clearly!")
     for i in range(3, 0, -1):
         print(f"Starting in {i}...", end="\r", flush=True)
         time.sleep(1)
@@ -213,6 +215,8 @@ def main() -> None:
         print("🔇 Applying Spectral Gating Noise Reduction...")
         reduction_report = reducer.clean_audio_file(saved_raw, clean_path)
         print(f"💾 Saved cleaned audio to: {clean_path.name}")
+        if reduction_report.speech_attenuation_warning:
+            print(f"⚠️  {reduction_report.speech_attenuation_warning}")
 
         # 3. Transcribe Raw & Cleaned with Whisper
         print("🗣️ Transcribing Raw Audio with Whisper...")
